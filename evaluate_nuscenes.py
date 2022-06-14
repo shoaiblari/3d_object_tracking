@@ -6,6 +6,8 @@ import json
 import os
 import time
 from typing import Tuple
+import pdb
+
 
 import numpy as np
 
@@ -13,6 +15,9 @@ from nuscenes import NuScenes
 from nuscenes.eval.common.config import config_factory
 from nuscenes.eval.tracking.data_classes import TrackingConfig
 from nuscenes.eval.tracking.evaluate import TrackingEval
+
+# Put all data file information in a new module
+from data_files import myfiles
 
 if __name__ == "__main__":
 
@@ -25,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval_set', type=str, default='val',
                         help='Which dataset split to evaluate on, train, val or test.')
     #parser.add_argument('--dataroot', type=str, default='/data/sets/nuscenes',
-    parser.add_argument('--dataroot', type=str, default='/cs231a/data/nuscenes/trainval',
+    parser.add_argument('--dataroot', type=str, default=myfiles.data_train_dir,
                         help='Default nuScenes data directory.')
     parser.add_argument('--version', type=str, default='v1.0-trainval',
                         help='Which version of the nuScenes dataset to evaluate on, e.g. v1.0-trainval.')
@@ -37,6 +42,10 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', type=int, default=1,
                         help='Whether to print to stdout.')
     args = parser.parse_args()
+
+    #print("Arguments are: ", args)
+
+    #pdb.set_trace()
 
     result_path_ = os.path.expanduser(args.result_path)
     output_dir_ = os.path.expanduser(args.output_dir)

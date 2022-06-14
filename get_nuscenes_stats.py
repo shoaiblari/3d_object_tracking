@@ -5,6 +5,11 @@ import numpy as np
 from main import iou3d, convert_3dbox_to_8corner
 from sklearn.utils.linear_assignment_ import linear_assignment
 
+# Added data file, outputfile, and jerk
+
+# data files
+from data_files import myfiles
+
 from nuscenes import NuScenes
 from nuscenes.eval.common.config import config_factory
 from nuscenes.eval.tracking.evaluate import TrackingEval
@@ -69,6 +74,7 @@ def get_mean(tracks):
           box.translation[0], box.translation[1], box.translation[2],
           rotation_to_positive_z_angle(box.rotation),
           0, 0, 0, 0, 
+          0, 0, 0, 0,
           0, 0, 0, 0])
 
 
@@ -96,6 +102,20 @@ def get_mean(tracks):
               gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-1][11:15] = residual_a
             if gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-2][11] == 0:
               gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-2][11:15] = residual_a
+
+            # if we can find the same object in the previous three frames, get the jerk
+            if box.tracking_id in gt_trajectory_map[box.tracking_name][scene_token] and t_idx-3 in gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id]:
+              residual_j = residual_a - ((gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-1][3:7] - gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-2][3:7])
+                          - (gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-2][3:7] - gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-3][3:7]))
+              box_data[15:19] = residual_j
+              gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx] = box_data
+              # back fill
+              if gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-1][15] == 0:
+                gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-1][15:19] = residual_j
+              if gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-2][15] == 0:
+                gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-2][15:19] = residual_j
+              if gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-3][15] == 0:
+                gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-3][15:19] = residual_j
 
         #print(det_data)
         gt_box_data[box.tracking_name].append(box_data)
@@ -230,6 +250,8 @@ if __name__ == '__main__':
                       help='Whether to print to stdout.')
   parser.add_argument('--matching_dist', type=str, default='2d_center',
                       help='Which distance function for matching, 3d_iou or 2d_center.')
+  parser.add_argument('--output_file', type=str, default='results/covariance_results',
+                      help='Output file to print the results')
   args = parser.parse_args()
 
   eval_set_ = args.eval_set
@@ -244,16 +266,16 @@ if __name__ == '__main__':
       cfg_ = DetectionConfig.deserialize(json.load(_f))
 
   if 'train' in eval_set_:
-    detection_file = '/cs231a/data/nuscenes_new/megvii_train.json'
-    data_root = '/cs231a/data/nuscenes/trainval'
+    detection_file = myfiles.det_train_file
+    data_root = myfiles.data_train_dir
     version='v1.0-trainval'
   elif 'val' in eval_set_:
-    detection_file = '/cs231a/data/nuscenes_new/megvii_val.json'
-    data_root = '/cs231a/data/nuscenes/trainval'
+    detection_file = myfiles.det_val_file
+    data_root = myfiles.data_val_dir
     version='v1.0-trainval'
   elif 'test' in eval_set_:
-    detection_file = '/cs231a/data/nuscenes_new/megvii_test.json'
-    data_root = '/cs231a/data/nuscenes/test'
+    detection_file = myfiles.det_test_file
+    data_root = myfiles.data_test_dir
     version='v1.0-test'
 
   nusc = NuScenes(version=version, dataroot=data_root, verbose=True)
@@ -268,28 +290,30 @@ if __name__ == '__main__':
   pred_boxes = add_center_dist(nusc, pred_boxes)
   gt_boxes = add_center_dist(nusc, gt_boxes)
 
-  
-  print('len(pred_boxes.sample_tokens): ', len(pred_boxes.sample_tokens))
-  print('len(gt_boxes.sample_tokens): ', len(gt_boxes.sample_tokens))
+  # Save results in an output file
+  with open(args.output_file, 'w') as f:
+    sys.stdout = f
+    print('len(pred_boxes.sample_tokens): ', len(pred_boxes.sample_tokens))
+    print('len(gt_boxes.sample_tokens): ', len(gt_boxes.sample_tokens))
 
-  tracks_gt = create_tracks(gt_boxes, nusc, eval_set_, gt=True)
+    tracks_gt = create_tracks(gt_boxes, nusc, eval_set_, gt=True)
 
-  mean, std, var = get_mean(tracks_gt)
-  print('GT: Global coordinate system')
-  print('h, w, l, x, y, z, a, x_dot, y_dot, z_dot, a_dot, x_dot_dot, y_dot_dot, z_dot_dot, a_dot_dot')
-  print('mean: ', mean)
-  print('std: ', std)
-  print('var: ', var)
+    mean, std, var = get_mean(tracks_gt)
+    print('GT: Global coordinate system')
+    print('h, w, l, x, y, z, a, x_dot, y_dot, z_dot, a_dot, x_dot_dot, y_dot_dot, z_dot_dot, a_dot_dot')
+    print('mean: ', mean)
+    print('std: ', std)
+    print('var: ', var)
 
-  # for observation noise covariance
-  mean, std, var, mean_vel, std_vel, var_vel = matching_and_get_diff_stats(pred_boxes, gt_boxes, tracks_gt, matching_dist)
-  print('Diff: Global coordinate system')
-  print('h, w, l, x, y, z, a')
-  print('mean: ', mean)
-  print('std: ', std)
-  print('var: ', var)
-  print('h_dot, w_dot, l_dot, x_dot, y_dot, z_dot, a_dot')
-  print('mean_vel: ', mean_vel)
-  print('std_vel: ', std_vel)
-  print('var_vel: ', var_vel)
+    # for observation noise covariance
+    mean, std, var, mean_vel, std_vel, var_vel = matching_and_get_diff_stats(pred_boxes, gt_boxes, tracks_gt, matching_dist)
+    print('Diff: Global coordinate system')
+    print('h, w, l, x, y, z, a')
+    print('mean: ', mean)
+    print('std: ', std)
+    print('var: ', var)
+    print('h_dot, w_dot, l_dot, x_dot, y_dot, z_dot, a_dot')
+    print('mean_vel: ', mean_vel)
+    print('std_vel: ', std_vel)
+    print('var_vel: ', var_vel)
 

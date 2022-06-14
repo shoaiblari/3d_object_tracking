@@ -15,12 +15,16 @@ from nuscenes.eval.tracking.data_classes import TrackingBox
 from nuscenes.eval.detection.data_classes import DetectionBox 
 from pyquaternion import Quaternion
 from tqdm import tqdm
+import pdb
+# Added data files, constant acceleration model
+
+from data_files import myfiles
 
 @jit    
 def poly_area(x,y):
     return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
 
-@jit        
+@jit
 def box3d_vol(corners):
     ''' corners: (8,3) no assumption on axis direction '''
     a = np.sqrt(np.sum((corners[0,:] - corners[1,:])**2))
@@ -188,6 +192,10 @@ class KalmanBoxTracker(object):
     Initialises a tracker using initial bounding box.
     """
     #define constant velocity model
+    if covariance_id == 3:
+        use_accel = True
+    else:
+        use_accel = False
     if not use_angular_velocity:
       self.kf = KalmanFilter(dim_x=10, dim_z=7)       
       self.kf.F = np.array([[1,0,0,0,0,0,0,1,0,0],      # state transition matrix
@@ -208,8 +216,8 @@ class KalmanBoxTracker(object):
                             [0,0,0,0,1,0,0,0,0,0],
                             [0,0,0,0,0,1,0,0,0,0],
                             [0,0,0,0,0,0,1,0,0,0]])
-    else:
-      # with angular velocity
+    elif not use_accel:
+      # with angular velocity and not constant accel
       self.kf = KalmanFilter(dim_x=11, dim_z=7)       
       self.kf.F = np.array([[1,0,0,0,0,0,0,1,0,0,0],      # state transition matrix
                             [0,1,0,0,0,0,0,0,1,0,0],
@@ -230,6 +238,33 @@ class KalmanBoxTracker(object):
                             [0,0,0,0,1,0,0,0,0,0,0],
                             [0,0,0,0,0,1,0,0,0,0,0],
                             [0,0,0,0,0,0,1,0,0,0,0]])
+    else:
+      # with angular velocity
+      self.kf = KalmanFilter(dim_x=15, dim_z=7)
+      self.kf.F = np.array([[1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],  # state transition matrix
+                            [0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+                            ])
+
+      self.kf.H = np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # measurement function,
+                            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]])
 
     # Initialize the covariance matrix, see covariance.py for more details
     if covariance_id == 0: # exactly the same as AB3DMOT baseline
@@ -244,7 +279,7 @@ class KalmanBoxTracker(object):
       self.kf.P = covariance.P
       self.kf.Q = covariance.Q
       self.kf.R = covariance.R
-    elif covariance_id == 2: # for nuscenes
+    elif covariance_id == 2 or covariance_id ==3: # for nuscenes
       covariance = Covariance(covariance_id)
       self.kf.P = covariance.P[tracking_name]
       self.kf.Q = covariance.Q[tracking_name]
@@ -564,7 +599,8 @@ class AB3DMOT(object):
       matched, unmatched_dets, unmatched_trks = associate_detections_to_trackers(dets_8corner, trks_8corner, iou_threshold=match_threshold, print_debug=print_debug, match_algorithm=match_algorithm)
     else:
       matched, unmatched_dets, unmatched_trks = associate_detections_to_trackers(dets_8corner, trks_8corner, use_mahalanobis=True, dets=dets, trks=trks, trks_S=trks_S, mahalanobis_threshold=match_threshold, print_debug=print_debug, match_algorithm=match_algorithm)
-   
+
+    #print("match_threshold: ", match_threshold)
     #update matched trackers with assigned detections
     for t,trk in enumerate(self.trackers):
       if t not in unmatched_trks:
@@ -657,18 +693,18 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
   '''
   save_dir = os.path.join(save_root, data_split); mkdir_if_missing(save_dir)
   if 'train' in data_split:
-    detection_file = '/cs231a/data/nuscenes_new/megvii_train.json'
-    data_root = '/cs231a/data/nuscenes/trainval'
+    detection_file = myfiles.det_train_file
+    data_root = myfiles.data_train_dir
     version='v1.0-trainval'
     output_path = os.path.join(save_dir, 'results_train_probabilistic_tracking.json')
   elif 'val' in data_split:
-    detection_file = '/cs231a/data/nuscenes_new/megvii_val.json'
-    data_root = '/cs231a/data/nuscenes/trainval'
+    detection_file = myfiles.det_val_file
+    data_root = myfiles.data_val_dir
     version='v1.0-trainval'
     output_path = os.path.join(save_dir, 'results_val_probabilistic_tracking.json')
   elif 'test' in data_split:
-    detection_file = '/cs231a/data/nuscenes_new/megvii_test.json'
-    data_root = '/cs231a/data/nuscenes/test'
+    detection_file = myfiles.det_test_file
+    data_root = myfiles.data_test_dir
     version='v1.0-test'
     output_path = os.path.join(save_dir, 'results_test_probabilistic_tracking.json')
 
@@ -755,7 +791,7 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
 
 if __name__ == '__main__':
   if len(sys.argv)!=9:
-    print("Usage: python main.py data_split(train, val, test) covariance_id(0, 1, 2) match_distance(iou or m) match_threshold match_algorithm(greedy or h) use_angular_velocity(true or false) dataset save_root")
+    print("Usage: python main.py data_split(train, val, test) covariance_id(0, 1, 2, 3) match_distance(iou or m) match_threshold match_algorithm(greedy or h) use_angular_velocity(true or false) dataset save_root")
     sys.exit(1)
 
   data_split = sys.argv[1]
