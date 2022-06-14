@@ -71,8 +71,8 @@ pip install -r requirements.txt
 ## Test Run
 Once the above installs succeed, change the directory and file locations in the following files to match your environment.
 
-- In `evaluate_nuscenes.py`, change the default location for the `dataroot` directory to where the nuscenes `trainval` directory resides.
-- In `get_nusceens_stats.py` and `main.py` files, change all `data_root` directory and `detection_file` locations to match your environment.
+- Download nuscenes trainval meta data and the File blobs of 85 scenes, part 1, if you want to analyze the data.  
+- In 'data_files.py' change all directory and file locations to match where the detection and data files are located.
 
 After making these changes, run the main program by.
 
@@ -82,3 +82,15 @@ python main.py val 2 m 11 greedy true nuscenes results/000008;
 ```
 
 Upon successful run, tracking results will be in the `~/w/3d_object_tracking/results/000008/val/results_val_probabilistic_tracking.json` file.
+
+## To generate aggregate results
+Run get_nuscenes_stats.py --output_file results/covariance/covariance_results
+
+## To generate results on a per-frame basis
+Run evaluate_nuscenes.py --output_dir results/results_000008 results_val_probabilistic_tracking.json
+
+## To plot the bounding boxes per object
+Run plotting3d.py
+
+## To generate the covariance matrices
+Run get_nuscenes_stats.py --output_file results/covariance/covariance_results
